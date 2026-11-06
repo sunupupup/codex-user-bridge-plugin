@@ -1,8 +1,52 @@
 # Codex User Bridge
 
-Codex 本地用户通信插件：遇到需要用户决定的问题时，发送后立即返回，继续独立工作，再主动查询回答。
+让 Codex 在需要用户输入时，通过本地聊天或手机通知用户，并接收回答。提供两种方式：**两个 MCP Tool 主动收发**，或 **原生异步提问 + Hook + 后台任务自动转交**。
 
-**支持本地模拟、Telegram、飞书应用机器人和个人微信 ClawBot/iLink 文本问答。** 默认本地聊天模式由你在网页手动回复；外部渠道发送通知并接收所绑定用户的文本回复。三个外部渠道已通过模拟 API 与 MCP 检查，真实账号/手机联调仍待你配置后测试。
+**本地聊天与 Telegram 已测试跑通，包括用户回复自动送回当前 Codex 聊天并继续执行。** 飞书应用机器人和个人微信 ClawBot/iLink 已有工具渠道实现及模拟测试，真实设备联调尚待验证。
+
+## 两种使用方式
+
+| | 方式一：两个 Tool | 方式二：Hook + 后台任务 |
+|---|---|---|
+| 发起问题 | Codex 调用 `bridge_send_question` | Codex 调用原生 `request_user_input_async`，`PreToolUse` 捕获问题 |
+| 接收答案 | Codex 主动调用 `bridge_get_reply` 查询 | 常驻 worker 轮询，通过 `send_message_to_thread` 自动转交原聊天 |
+| 是否等待用户 | 发送和单次查询立即返回 | Hook 仅入队即返回，后台负责等待 |
+| 答案形式 | 查询工具的结果 | 携带原问题关联信息的追加消息 |
+| 启用方式 | 安装插件并启动渠道服务 | 额外配置 Hook、启动 worker；当前是实验模式 |
+
+同一个问题选择一条路径即可。两条路径都允许 Codex 继续处理不依赖答案的工作；必须依赖用户决定的操作仍需等待答案。
+
+### 方式一：两个 Tool
+
+`bridge_send_question` 返回问题编号；稍后用相同 `task_id` 和该 `question_id` 调用
+`bridge_get_reply`。这条路径不会自动向聊天插入消息，也不保证模型定时查询。
+下方快速开始和插件安装步骤适用于此方式。
+
+### 方式二：原生异步提问 + Hook + 后台任务
+
+```text
+request_user_input_async → PreToolUse 将问题写入队列 → Hook 立即返回
+常驻 worker → 本地聊天 / Telegram → 用户回答
+常驻 worker → send_message_to_thread → 原 Codex 聊天收到答案并继续处理
+```
+
+**Hook 创建任务，提前启动的 worker 执行任务**，不是每次提问都新建一个进程。
+原生异步工具自行返回 `accepted`，插件不修改其 tool result。
+当前只处理带 `native_bridge_probe` 标记的问题，安装插件不会自动开启这条链路。
+原生 Question 卡片状态暂不同步；追加消息不等于原生表单提交。
+
+配置、启动和实测证据见 [后台答案转交说明](./docs/desktop-answer-relay.md)。
+
+## 渠道验证状态
+
+截至 2026-11-06：
+
+| 渠道 | 两个 Tool 收发 | Hook + 后台自动转交 |
+|---|---|---|
+| 本地聊天 `local_chat` | 已实测真人页面回复 | 已实测自动送回原聊天，并继续发起新问题 |
+| Telegram | 已实测机器人通知与手机回复 | 已实测手机回复自动送回，Codex 按回复写出故事 |
+| 飞书 / 个人微信 | 模拟 API 与 MCP 测试通过，真实设备待验证 | 尚未接入 |
+| `local_mock` | 自动模拟测试通过，不能当作真人回答 | 不接入，worker 拒绝模拟答案 |
 
 Telegram 的 Bot 创建、.env 配置、私聊 ID 查询和启动步骤见 [Telegram 使用说明](./docs/telegram.md)。
 
@@ -96,13 +140,14 @@ codex plugin remove codex-user-bridge@codex-user-bridge
 
 安装和日常工具调用本身不需要模型 Key；运行真实 Codex 模型任务使用你的账号额度。首次从缓存副本启动可能需要下载 Python 依赖，需能访问 Python 包源。
 
-## 调用链
+## 两个 Tool 的调用链与约定
 
 ```text
 Codex → bridge_send_question → LocalHttpAdapter.send → POST /chat
                                                    → SQLite 保存 pending
 
-5555 服务定时线程 → 扫描到期问题 → 保存模拟回答 answered
+用户在本地页面或外部渠道回复 → 服务保存 answered
+（仅 local_mock 模式由定时线程生成模拟回答）
 
 Codex → bridge_get_reply → LocalHttpAdapter.get_reply → GET /chat/{id}?task_id=...
                                                      → 工具结果返回回答
@@ -113,7 +158,7 @@ Codex → bridge_get_reply → LocalHttpAdapter.get_reply → GET /chat/{id}?tas
 | [Skill](./skills/external-user-chat/SKILL.md) | 何时发问、何时查询；不提供后台定时调度 |
 | [mcp_server.py](./src/codex_user_bridge/mcp_server.py) | 两个 MCP 工具的参数、说明和结构化结果 |
 | [adapters.py](./src/codex_user_bridge/adapters.py) | 统一 send/get_reply，隔离渠道协议 |
-| [service.py](./src/codex_user_bridge/service.py) | HTTP 接口、模拟回复定时器 |
+| [service.py](./src/codex_user_bridge/service.py) | HTTP 接口、页面服务与渠道线程启动 |
 | [store.py](./src/codex_user_bridge/store.py) | 问题保存、幂等与状态推进 |
 
 发送参数：
@@ -132,32 +177,32 @@ Codex → bridge_get_reply → LocalHttpAdapter.get_reply → GET /chat/{id}?tas
 - Telegram 返回 queued 只代表排队，sent 只代表平台接受；unknown 不会自动重发。真人回答也仅适用于原问题。
 - 仅供本机单用户实验，无账号认证；不要对局域网或公网开放，不发送密钥。
 
-## TODO：桌面原生提问的外部答案回填
+## 已完成与待办
 
-2026-11-06：新增[后台答案转交实验](./docs/desktop-answer-relay.md)，已实测本地页面回复
-经独立 worker 自动到达原 Codex 聊天，模型实际收到并继续回应。Hook 只入队立即返回。
-该通路发送关联原问题的聊天消息，尚不完成原生卡片，也未接入双端回答去重。
+- [x] 两个 MCP Tool：发送问题、主动查询答案。
+- [x] Hook 入队、后台轮询，并自动转交原 Codex 聊天。
+- [x] 本地聊天与 Telegram 真实回复闭环验证。
+- [ ] 原生 Question 卡片标记为已回答，与外部答案同步。
+- [ ] 双端重复回答处理、Codex 端回答后取消后台等待。
+- [ ] 简化 Hook、worker 的安装配置和进程管理。
 
-- [ ] 打通 Codex 桌面原生提问 → 本地页面或手机回复 → 原问题收到答案并继续执行。
-
-状态：**未完成**。已验证桌面异步提问触发 Hook、问题镜像到本地页面及页面保存回复；
-独立 App Server 的同步提问回填也已跑通，但不能据此宣称桌面版已支持回填。
-目前尚未找到并接通当前桌面会话可用的原生答复入口，不代表已证明该入口不存在。
-
-后续先验证按原问题 ID 提交答案的通路，再做双端抢答、取消失效与超时通知。
-验收必须同时确认原问题变为已回答、模型收到对应答案并继续执行，不能只看页面“已保存”。
-详见[原生提问实验与待办](./docs/native-input-probe.md)。实验脚本不属于默认启用的插件能力。
+目前自动转交使用桌面通信管道的实验适配，升级后需要重新验证。
+同步 `request_user_input` 不属于此 Hook 自动转交能力。
+历史同步协议实验与原生卡片待办见 [原生提问实验](./docs/native-input-probe.md)。
 
 ## 验证与开发
 
 ```powershell
 uv run --frozen python -m unittest discover -s tests -v
+node --test tests/desktop_answer_worker.test.mjs
 python scripts/verify_plugin.py
 # 需要先启动 5555 服务；从独立安装缓存验证收发
 python scripts/verify_plugin.py --roundtrip
 ```
 
-46 项自动检查通过（含三个渠道的模拟 API 及 MCP 端到端）；此前真实 Codex CLI 样本验证的是本地模拟渠道，详见[验收记录](./docs/validation.md)。安装验证使用独立临时配置，不改日常 Codex 配置、不调用模型。外部渠道真实手机收发待配置账号后验证。
+原有 46 项 Python 自动检查通过（含三个渠道的模拟 API 及 MCP 端到端）；新增 Hook 队列测试 1 项、Node worker 测试 6 项通过。worker 需要 Node.js。
+本地聊天与 Telegram 的真实自动回传记录见 [后台答案转交说明](./docs/desktop-answer-relay.md)；
+早期 CLI 模拟渠道及安装检查见 [验收记录](./docs/validation.md)。安装验证使用独立临时配置，不改日常 Codex 配置、不调用模型。
 
 [设计](./docs/plans/2026-10-20-local-bridge-design.md) · [更新记录](./CHANGELOG.md) · [MIT 许可证](./LICENSE)
 
