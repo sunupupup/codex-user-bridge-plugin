@@ -1,9 +1,11 @@
-"""仅镜像含 native_bridge_probe 标记的原生提问，不回填或替代用户答案。"""
+"""测试异步提问仅入队即返回；后台 worker 负责镜像问题和转交真实答案。"""
 
 import json
 from pathlib import Path
 import sys
 import time
+import hashlib
+import os
 from urllib.request import ProxyHandler, Request, build_opener
 from urllib.error import HTTPError
 
@@ -27,6 +29,33 @@ def main():
     # 先落盘再访问页面服务，网络错误或字段缺失不能掩盖事件已经触发的事实。
     with out.open('a', encoding='utf-8') as stream:
         stream.write(json.dumps({**record, 'stage': 'received'}, ensure_ascii=False) + '\n')
+    if selected and event.get('tool_name') == 'request_user_input_async':
+        if event.get('hook_event_name') == 'PreToolUse':
+            queue = root / '.local' / 'desktop-answer-queue'
+            queue.mkdir(exist_ok=True)
+            # 使用原数组索引；筛选后的序号会错误关联多问题中的答案。
+            for index, question in enumerate(questions):
+                if question not in selected:
+                    continue
+                identity = f"{event['session_id']}:{event['tool_use_id']}:{index}"
+                target = queue / (hashlib.sha256(identity.encode()).hexdigest() + '.json')
+                job = {'state': 'queued', 'thread_id': event['session_id'],
+                       'turn_id': event.get('turn_id'), 'call_id': event['tool_use_id'],
+                       'index': index, 'title': question.get('title', question.get('question', '')),
+                       'options': [o['label'] if isinstance(o, dict) else o
+                                   for o in question.get('options') or []],
+                       'expires_at': (time.time() + 3600) * 1000}
+                # 先完整写入临时文件，再原子发布；重复 Hook 不覆盖已消费状态。
+                temporary = target.with_suffix(f'.{os.getpid()}.tmp')
+                temporary.write_text(json.dumps(job, ensure_ascii=False), encoding='utf-8')
+                try:
+                    os.link(temporary, target)
+                except FileExistsError:
+                    pass
+                finally:
+                    temporary.unlink()
+        # PostToolUse 的 accepted 仅代表提问已发出，不能取消等待任务。
+        return
     if selected and event.get('hook_event_name') == 'PreToolUse':
         opener = build_opener(ProxyHandler({}))
         with opener.open('http://127.0.0.1:5555/health', timeout=3) as response:

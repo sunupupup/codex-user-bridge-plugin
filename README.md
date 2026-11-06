@@ -134,6 +134,10 @@ Codex → bridge_get_reply → LocalHttpAdapter.get_reply → GET /chat/{id}?tas
 
 ## TODO：桌面原生提问的外部答案回填
 
+2026-11-06：新增[后台答案转交实验](./docs/desktop-answer-relay.md)，已实测本地页面回复
+经独立 worker 自动到达原 Codex 聊天，模型实际收到并继续回应。Hook 只入队立即返回。
+该通路发送关联原问题的聊天消息，尚不完成原生卡片，也未接入双端回答去重。
+
 - [ ] 打通 Codex 桌面原生提问 → 本地页面或手机回复 → 原问题收到答案并继续执行。
 
 状态：**未完成**。已验证桌面异步提问触发 Hook、问题镜像到本地页面及页面保存回复；
