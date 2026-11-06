@@ -2,6 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {advance} from '../scripts/desktop_answer_worker.mjs';
 
+test('Telegram 绑定渠道和答案来源必须匹配', async()=>{
+  const f = fixture({request:async endpoint => endpoint === '/health' ? {channel:'telegram'} :
+    endpoint === '/chat' ? {question_id:'tg1'} : {status:'answered',reply:{text:'手机回复',source:'telegram',is_simulated:false}}});
+  f.job.channel='telegram'; await advance(f.job,f.deps);
+  assert.equal(f.job.state,'submitted'); assert.match(f.sent[0], /通过 telegram/);
+  const g = fixture(); g.job.channel='telegram';
+  await assert.rejects(advance(g.job,g.deps), /渠道不一致/);
+  g.job.state='waiting'; await advance(g.job,g.deps);
+  assert.equal(g.job.state,'failed'); assert.equal(g.sent.length,0);
+});
+
 function fixture(overrides = {}) {
   const states = [], sent = [];
   const job = {state:'queued', expires_at:9999, thread_id:'thread', call_id:'call', index:2, title:'question', options:[]};

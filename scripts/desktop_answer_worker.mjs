@@ -40,14 +40,16 @@ export function rpc(method, params, pipe = process.env.CODEX_APP_TOOLS_PIPE_PATH
 
 export function replyPrompt(job, answer) {
   // 明确来源与关联编号；不用伪造原生答案标签冒充桌面提交。
-  return `用户通过本地聊天回复了先前的异步提问。请将以下文本作为该问题的用户回复继续处理。\n` +
+  return `用户通过 ${job.channel || 'local_chat'} 回复了先前的异步提问。请将以下文本作为该问题的用户回复继续处理。\n` +
     `原调用：${job.call_id}；问题索引：${job.index}；本地问题：${job.question_id}\n` +
     `原问题：${job.title}\n用户回复：${JSON.stringify(answer)}\n` +
     `这是本地答案转交，不表示原生提问卡片已关闭。`;
 }
 
-async function http(endpoint, body) {
-  const response = await fetch('http://127.0.0.1:5555' + endpoint, {
+async function http(endpoint, body, base = 'http://127.0.0.1:5555') {
+  const url = new URL(base);
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('只允许本机服务地址');
+  const response = await fetch(base + endpoint, {
     signal: AbortSignal.timeout(3000),
     ...(body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {})
   });
@@ -55,14 +57,15 @@ async function http(endpoint, body) {
   return response.json();
 }
 
-export async function advance(job, {save, request = http, send, now = Date.now}) {
+export async function advance(job, {save, request = (endpoint, body) => http(endpoint, body, job.base_url), send, now = Date.now}) {
   if (['submitted','unknown','expired','failed'].includes(job.state)) return;
   // 发送前先持久化。重启遇到 sending 不能盲目重发，否则会重复唤醒聊天。
   if (job.state === 'sending') { job.state = 'unknown'; await save(job); return; }
   if (now() > job.expires_at) { job.state = 'expired'; await save(job); return; }
   if (job.state === 'queued') {
     const health = await request('/health');
-    if (health.channel !== 'local_chat') throw new Error('只允许 local_chat');
+    const channel = job.channel || 'local_chat';
+    if (!['local_chat', 'telegram'].includes(channel) || health.channel !== channel) throw new Error('服务渠道与问题绑定渠道不一致');
     const result = await request('/chat', {
       task_id:job.thread_id, request_id:`desktop-relay:${job.call_id}:${job.index}`,
       message:`[后台答案转交测试] ${job.title}`, options:job.options
@@ -71,7 +74,8 @@ export async function advance(job, {save, request = http, send, now = Date.now})
   }
   const result = await request(`/chat/${encodeURIComponent(job.question_id)}?task_id=${encodeURIComponent(job.thread_id)}`);
   if (result.status !== 'answered' || !result.reply) return;
-  if (result.reply.is_simulated !== false || typeof result.reply.text !== 'string') {
+  if (result.reply.is_simulated !== false || typeof result.reply.text !== 'string' ||
+      (job.channel === 'telegram' && result.reply.source !== 'telegram')) {
     job.state = 'failed'; job.error = '拒绝模拟答案或无效回复'; await save(job); return;
   }
   job.state = 'sending'; await save(job);

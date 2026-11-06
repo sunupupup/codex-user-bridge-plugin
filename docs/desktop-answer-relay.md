@@ -1,4 +1,15 @@
-# 桌面异步答案转交（本地实验）
+# 桌面异步答案转交（本地聊天 / Telegram 实验）
+
+## Telegram 路由
+
+可另开 `uv run --frozen --env-file .env python scripts/serve.py --channel telegram --port 5556 --db .local/telegram-relay.sqlite3`，保留 5555 本地页面。
+同一机器人只能有一个接收进程，启动前先停止已有的 Telegram 接收服务。
+在 `.local/desktop-relay-config.json` 写入：
+`{"channel":"telegram","base_url":"http://127.0.0.1:5556"}`。
+此后新问题转发 Telegram；已入队问题保留原渠道和地址，不迁移历史问题。
+手机需引用机器人问题回复。worker 检查 Telegram 答案来源后转交 Codex。
+切回本地使用 `{"channel":"local_chat","base_url":"http://127.0.0.1:5555"}`。
+该配置不含 token；凭据仍从未提交的 `.env` 读取。
 
 链路：原生 request_user_input_async → PreToolUse 写队列立即返回 →
 独立 worker 镜像问题到 5555 → 用户页面回复 → worker 转交原聊天 → Codex 继续处理。
@@ -43,3 +54,18 @@ queued → waiting → sending → submitted。submitted 仅表示桌面转交 A
 
 验证命令：`node --test tests/desktop_answer_worker.test.mjs`；
 `uv run --frozen python -m unittest discover -s tests -v`。
+
+## 2026-11-06 Telegram 实测
+
+- 使用独立的 5556 Telegram 服务，5555 本地页面继续运行。
+- Hook 将新问题的渠道和地址固化入队，后台按绑定渠道处理；旧问题不迁移。
+- 问题编号：`q_1e4b7a7670a24e1b862ef932e51dbd8f`。
+- 发送结果：`channel=telegram`、`delivery_status=sent`、`is_simulated=false`。
+- 用户在手机回复并要求写一个小朋友上学的短故事；后台自动转交原 Codex 聊天，
+  Codex 实际收到并写出故事。没有由模型手动调用查询工具来获取答案。
+- 队列最终状态 `submitted`，桌面返回 `success=true`；结合实际模型回应确认闭环完成。
+- 本轮针对性验证：Node 状态机测试 6 项、Python Hook 队列测试 1 项通过。
+  覆盖 Telegram 渠道/答案来源校验、失败与重复发送、原问题索引和重复 Hook。
+- 尚未完成：原生卡片状态同步、双端回答去重、桌面端回答后取消后台等待。
+
+测试账号凭据、私聊 ID、运行队列和数据库均留在本机，不纳入仓库。

@@ -45,6 +45,11 @@ def main():
                        'options': [o['label'] if isinstance(o, dict) else o
                                    for o in question.get('options') or []],
                        'expires_at': (time.time() + 3600) * 1000}
+                # 路由随问题固化，切换渠道不会把历史本地问题误发到手机。
+                config = root / '.local' / 'desktop-relay-config.json'
+                route = json.loads(config.read_text(encoding='utf-8')) if config.exists() else {}
+                job['channel'] = route.get('channel', 'local_chat')
+                job['base_url'] = route.get('base_url', 'http://127.0.0.1:5555')
                 # 先完整写入临时文件，再原子发布；重复 Hook 不覆盖已消费状态。
                 temporary = target.with_suffix(f'.{os.getpid()}.tmp')
                 temporary.write_text(json.dumps(job, ensure_ascii=False), encoding='utf-8')
