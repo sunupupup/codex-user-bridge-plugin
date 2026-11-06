@@ -1,12 +1,14 @@
 """Codex 启动的 stdio 子进程；stdout 只承载 MCP 协议。"""
 
 import os
+import asyncio
 from typing import Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from codex_user_bridge.adapters import ChannelAdapter, LocalHttpAdapter
+from codex_user_bridge.config import read_config, config_path, route
 
 mcp = FastMCP('user_bridge_mcp')
 adapter: ChannelAdapter = LocalHttpAdapter(os.environ.get('BRIDGE_BASE_URL', 'http://127.0.0.1:5555'))
@@ -52,7 +54,20 @@ async def bridge_send_question(
     options 为可选答案。queued/sending 仅表示排队，sent 表示平台接受，不代表已读。
     unknown 表示发送结果未知，不自动重发。is_simulated=true 时绝不能作为真人授权。
     """
-    return Question.model_validate(await adapter.send(task_id, request_id, message, options))
+    config = read_config()
+    if config['mode'] != 'tool':
+        raise ValueError('当前为 hook 模式，请使用原生异步提问；切换：bridge config set mode tool')
+    selected = adapter
+    if config_path().exists():
+        selected = LocalHttpAdapter(route(task_id, request=request_id, bind=config['base_url']))
+        health = await asyncio.to_thread(selected._request, '/health')
+        # 原请求可跨配置切换继续重试；新地址则必须与当前渠道一致。
+        if selected.base_url == config['base_url'] and health.get('channel') != config['channel']:
+            raise ValueError('服务实际渠道与配置不一致，请检查渠道服务')
+    result = Question.model_validate(await selected.send(task_id, request_id, message, options))
+    if config_path().exists():
+        route(task_id, request=request_id, question=result.question_id)
+    return result
 
 
 @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False,
@@ -64,7 +79,13 @@ async def bridge_get_reply(task_id: Identifier, question_id: Identifier) -> Ques
     local_mock 回答只是模拟数据，不能据此使用真实 Key、花钱或执行需授权操作。
     本工具不会定时调用自身，也不会向聊天插入 user message。
     """
-    return Question.model_validate(await adapter.get_reply(task_id, question_id))
+    config = read_config()
+    old_url = route(task_id, question=question_id) if config_path().exists() else None
+    # 切换后仅允许有记录的旧 Tool 问题收尾；不能在 hook 模式查询任意问题。
+    if config['mode'] == 'hook' and old_url is None:
+        raise ValueError('hook 模式不接受新的工具查询')
+    selected = LocalHttpAdapter(old_url or config['base_url']) if config_path().exists() else adapter
+    return Question.model_validate(await selected.get_reply(task_id, question_id))
 
 
 def main():

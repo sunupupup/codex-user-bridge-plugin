@@ -5,6 +5,10 @@ description: 当用户要求通过本地模拟渠道、Telegram、飞书或个�
 
 # 异步用户问答
 
+模式由 `bridge config` 配置：tool 模式使用下述两工具；hook 模式不要调用发送工具，
+而是使用原生异步提问与已配置的后台转交。不要自行切换模式。
+如果工具返回模式错误，说明当前配置与调用路径不符；旧 Tool 问题可按原编号查询收尾。
+
 1. 为本次任务选一个稳定且唯一的 task_id，并为每个问题选 request_id。它们由你生成，不是假定可自动读取的宿主 ID。
 2. 调用 bridge_send_question，保存 task_id、request_id、返回的 question_id；原问题重试必须复用 request_id。
 3. 工具返回后继续独立工作，不等待回答。queued/sending 表示尚未确认平台接收；仅 sent 可称“平台已接受”，也不等于用户已读。unknown/failed 要明确报告，不能宣称通知成功，不自动换 request_id 重发。

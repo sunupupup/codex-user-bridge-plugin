@@ -17,6 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
+bridge = "codex_user_bridge.config:main"
 codex-user-bridge-mcp = "codex_user_bridge.mcp_server:main"
 codex-user-bridge-serve = "codex_user_bridge.service:main"
 

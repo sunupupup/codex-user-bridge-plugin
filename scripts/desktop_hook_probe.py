@@ -6,13 +6,19 @@ import sys
 import time
 import hashlib
 import os
-from urllib.request import ProxyHandler, Request, build_opener
 from urllib.error import HTTPError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from codex_user_bridge.config import read_config
 
 
 def main():
     # Codex 写入 UTF-8；Windows 文本 stdin 可能按本地编码解码并产生代理字符。
     event = json.loads(sys.stdin.buffer.read().decode('utf-8'))
+    route = read_config()
+    # 统一模式开关：tool 模式完全旁路，hook 只接管异步问题。
+    if route['mode'] != 'hook' or event.get('tool_name') != 'request_user_input_async':
+        return
     questions = event.get('tool_input', {}).get('questions', [])
     # Hook 可在其他会话被发现，但只处理显式测试标记，避免转发正常会话。
     selected = [q for q in questions if q.get('id') == 'native_bridge_probe'
@@ -46,8 +52,6 @@ def main():
                                    for o in question.get('options') or []],
                        'expires_at': (time.time() + 3600) * 1000}
                 # 路由随问题固化，切换渠道不会把历史本地问题误发到手机。
-                config = root / '.local' / 'desktop-relay-config.json'
-                route = json.loads(config.read_text(encoding='utf-8')) if config.exists() else {}
                 job['channel'] = route.get('channel', 'local_chat')
                 job['base_url'] = route.get('base_url', 'http://127.0.0.1:5555')
                 # 先完整写入临时文件，再原子发布；重复 Hook 不覆盖已消费状态。
@@ -61,26 +65,6 @@ def main():
                     temporary.unlink()
         # PostToolUse 的 accepted 仅代表提问已发出，不能取消等待任务。
         return
-    if selected and event.get('hook_event_name') == 'PreToolUse':
-        opener = build_opener(ProxyHandler({}))
-        with opener.open('http://127.0.0.1:5555/health', timeout=3) as response:
-            if json.load(response).get('channel') != 'local_chat':
-                raise RuntimeError('实验只允许 local_chat')
-        record['questions'] = []
-        for index, question in enumerate(selected):
-            data = {'task_id': event['session_id'],
-                    'request_id': 'desktop:' + event['tool_use_id'] + ':' + question.get('id', str(index)),
-                    'message': '[桌面 Hook 实验；回填尚未接通] ' + question.get('question', question.get('title', '')),
-                    'options': [o['label'] if isinstance(o, dict) else o
-                                for o in question.get('options') or []]}
-            request = Request('http://127.0.0.1:5555/chat',
-                              data=json.dumps(data).encode('utf-8'),
-                              headers={'Content-Type': 'application/json'})
-            with opener.open(request, timeout=3) as response:
-                record['questions'].append(json.load(response)['question_id'])
-    # 仅记录测试调用的元信息，不记录其他会话文本，也不输出 Hook 决策。
-    with out.open('a', encoding='utf-8') as stream:
-        stream.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
 if __name__ == '__main__':

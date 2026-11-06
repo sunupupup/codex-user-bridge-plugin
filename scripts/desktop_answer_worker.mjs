@@ -48,7 +48,7 @@ export function replyPrompt(job, answer) {
 
 async function http(endpoint, body, base = 'http://127.0.0.1:5555') {
   const url = new URL(base);
-  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('只允许本机服务地址');
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('只允许本机服务地址');
   const response = await fetch(base + endpoint, {
     signal: AbortSignal.timeout(3000),
     ...(body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {})

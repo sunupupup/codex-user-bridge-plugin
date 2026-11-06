@@ -6,6 +6,19 @@
 
 ## 两种使用方式
 
+通过命令行切换（先执行 `uv sync --frozen`）：
+
+```sh
+uv run --frozen bridge config show
+uv run --frozen bridge config set mode tool
+uv run --frozen bridge config set channel telegram
+uv run --frozen bridge config set mode hook
+```
+
+默认 `tool + local_chat`。设置 `hook` 后，新 Tool 发送被拒绝；设置 `tool` 后，
+Hook 不再为新问题入队。旧问题仍按原路径收尾。切换参数无需重启，首次代码升级需重载插件。
+配置不会自动启动渠道服务或 worker。完整说明见 [配置与模式切换](./docs/configuration.md)。
+
 | | 方式一：两个 Tool | 方式二：Hook + 后台任务 |
 |---|---|---|
 | 发起问题 | Codex 调用 `bridge_send_question` | Codex 调用原生 `request_user_input_async`，`PreToolUse` 捕获问题 |
@@ -200,7 +213,7 @@ python scripts/verify_plugin.py
 python scripts/verify_plugin.py --roundtrip
 ```
 
-原有 46 项 Python 自动检查通过（含三个渠道的模拟 API 及 MCP 端到端）；新增 Hook 队列测试 1 项、Node worker 测试 6 项通过。worker 需要 Node.js。
+Python 检查涵盖渠道模拟 API、MCP 端到端、Hook 队列与统一配置；另有 Node worker 测试 6 项。worker 需要 Node.js。最新配置改造的测试记录见 [配置说明](./docs/configuration.md)。
 本地聊天与 Telegram 的真实自动回传记录见 [后台答案转交说明](./docs/desktop-answer-relay.md)；
 早期 CLI 模拟渠道及安装检查见 [验收记录](./docs/validation.md)。安装验证使用独立临时配置，不改日常 Codex 配置、不调用模型。
 

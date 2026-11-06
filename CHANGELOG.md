@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- 新增 `bridge config show/set`，统一 mode、channel、base_url 配置。
+- Tool 与 Hook 新任务互斥，旧任务按原渠道收尾；配置按调用读取。
+- 配置保存在用户目录，兼容无配置时的 BRIDGE_BASE_URL；不自动重启服务。
+- 旧 desktop-relay-config.json 停用，迁移见 docs/configuration.md。
+- 后台答案转交已完成本地聊天与 Telegram 真实测试；原生卡片状态同步仍待完成。
+
 ## 0.6.0
 
 - 默认本地测试改为聊天网页：显示问题、候选答案、手动回复和保存状态，每两秒更新。

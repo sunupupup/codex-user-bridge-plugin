@@ -4,11 +4,12 @@
 
 可另开 `uv run --frozen --env-file .env python scripts/serve.py --channel telegram --port 5556 --db .local/telegram-relay.sqlite3`，保留 5555 本地页面。
 同一机器人只能有一个接收进程，启动前先停止已有的 Telegram 接收服务。
-在 `.local/desktop-relay-config.json` 写入：
-`{"channel":"telegram","base_url":"http://127.0.0.1:5556"}`。
+执行 `uv run --frozen bridge config set channel telegram`，
+然后执行 `uv run --frozen bridge config set mode hook`。
 此后新问题转发 Telegram；已入队问题保留原渠道和地址，不迁移历史问题。
 手机需引用机器人问题回复。worker 检查 Telegram 答案来源后转交 Codex。
-切回本地使用 `{"channel":"local_chat","base_url":"http://127.0.0.1:5555"}`。
+切回本地使用 `uv run --frozen bridge config set channel local_chat`。
+旧 desktop-relay-config.json 已停用；统一参数、默认值和升级步骤见 [配置说明](./configuration.md)。
 该配置不含 token；凭据仍从未提交的 `.env` 读取。
 
 链路：原生 request_user_input_async → PreToolUse 写队列立即返回 →
@@ -21,6 +22,7 @@ request_user_input 不启用转交。PostToolUse 不是用户回答事件。
 
 1. 本地服务：`uv run --frozen python scripts/serve.py --channel local_chat --port 5555 --db .local/local-chat.sqlite3`
 2. 已授权的 PreToolUse Hook 指向 `scripts/desktop_hook_probe.py`。
+   执行 `uv run --frozen bridge config set mode hook` 启用入队；默认 tool 模式跳过 Hook。
 3. **在 Codex 执行环境中**运行 `node scripts/desktop_answer_worker.mjs`。
    普通终端通常没有 CODEX_APP_TOOLS_PIPE_PATH；缺失时明确报错。
    `--check` 可只检查桌面工具可用性。不复制或持久化管道地址。

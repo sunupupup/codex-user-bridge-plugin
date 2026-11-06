@@ -140,7 +140,7 @@ class FeishuTests(unittest.TestCase):
 
         async def run():
             params = StdioServerParameters(command=sys.executable, args=['-m', 'codex_user_bridge.mcp_server'],
-                env={'BRIDGE_BASE_URL': f'http://127.0.0.1:{server.server_port}'})
+                env={'BRIDGE_CONFIG': str(Path(self.temp.name) / 'isolated-config.json'), 'BRIDGE_BASE_URL': f'http://127.0.0.1:{server.server_port}'})
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as client:
                     await client.initialize()

@@ -128,7 +128,7 @@ class BridgeTests(unittest.TestCase):
     def test_mcp_process_end_to_end(self):
         async def scenario():
             params = StdioServerParameters(command=sys.executable,
-                args=['-m', 'codex_user_bridge.mcp_server'], env={'BRIDGE_BASE_URL': self.base})
+                args=['-m', 'codex_user_bridge.mcp_server'], env={'BRIDGE_CONFIG': str(Path(self.temp.name) / 'isolated-config.json'), 'BRIDGE_BASE_URL': self.base})
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as client:
                     await client.initialize()
