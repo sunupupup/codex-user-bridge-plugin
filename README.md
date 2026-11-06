@@ -1,4 +1,4 @@
-# Codex User Bridge
+# Codex User Bridge Plugin
 
 让 Codex 在需要用户输入时，通过本地聊天或手机通知用户，并接收回答。提供两种方式：**两个 MCP Tool 主动收发**，或 **原生异步提问 + Hook + 后台任务自动转交**。
 
@@ -104,15 +104,15 @@ uv run --frozen python scripts/demo.py
 从 GitHub 添加本仓库作为插件目录：
 
 ```powershell
-codex plugin marketplace add sunupupup/codex-user-bridge
+codex plugin marketplace add sunupupup/codex-user-bridge-plugin
 codex plugin add codex-user-bridge@codex-user-bridge
 ```
 
 也可先克隆本仓库，在本地运行 5555 服务：
 
 ```powershell
-git clone https://github.com/sunupupup/codex-user-bridge.git
-cd codex-user-bridge
+git clone https://github.com/sunupupup/codex-user-bridge-plugin.git
+cd codex-user-bridge-plugin
 uv sync --frozen
 python scripts/serve.py
 ```
