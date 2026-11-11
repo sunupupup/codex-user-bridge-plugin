@@ -1,6 +1,6 @@
 # Telegram 私聊使用与验收
 
-状态：0.3.0 已实现，模拟 API 验证通过；尚无真实 Bot 凭据，不代表手机收发已经联调。
+已验证真实 Bot 通知、引用回复及答案自动转交原 Codex 聊天。
 
 ## 1. 创建自己的 Bot
 
@@ -28,13 +28,14 @@ uv run --frozen --env-file .env python scripts/telegram_setup.py
 
 ## 3. 启动 Telegram 渠道
 
-如果旧版模拟服务已占用 5555，请在原终端 Ctrl+C 停止，不要结束未知进程。
+在仓库根目录切换渠道并启动服务；同一 Bot 只运行一个接收进程。
 
 ```powershell
-uv run --frozen --env-file .env python scripts/serve.py --channel telegram
+uv run --frozen bridge config set channel telegram
+uv run --frozen --env-file .env python scripts/serve.py --channel telegram --port 5556 --db .local/telegram.sqlite3
 ```
 
-默认仍使用本地 5555 接口，数据库在 .local/messages.sqlite3；此模式不生成模拟回答。
+上述命令使用 5556 端口和独立数据库，可与本地聊天服务并行运行。
 服务启动检查 Token 和已有 webhook；存在 webhook 时停止，不会擅自删除。
 需要代理时，可在本地 .env 配置标准 HTTPS_PROXY；实际网络可达性仍需本机验证。
 
@@ -81,15 +82,8 @@ Codex 发送后会获得 question_id；Telegram 稍后收到带问题编号、�
 - 同一数据库租约阻止重复消费者；异常退出可能要等最多约 45 秒。不能跨不同机器或不同数据库约束相同 Bot，请不要共用。
 - Bot API 的待接收更新不是永久存储；长时间停机可能错过回答，实际保留限制以官方文档为准。
 
-## 验证
+## 自动回传与验收
 
-```powershell
-uv run --frozen python -m unittest discover -s tests -v
-```
-
-21 项检查包括原有 10 项以及 Telegram 引用回复、编号路由、身份校验、幂等、持久化游标、旧库升级、发送未知、限流冷却、Webhook 冲突、单消费者与超长文本。
-其中端到端测试实际启动 MCP 子进程、本地 HTTP 服务和模拟 Telegram Bot API；模拟平台输入的测试消息不是真实用户回答。
-
-真实验收仍需：手机收到问题 → 引用回复 → Codex 查询到同一问题的文本和 source=telegram。当前未执行这一步。
+Tool 模式需要主动查询；Hook 模式由后台 worker 自动转交，见 [后台回传](./desktop-answer-relay.md)。统一验收步骤见 [三渠道测试](./channel-testing.md)。
 
 参考：[BotFather 与 Bot 创建](https://core.telegram.org/bots/tutorial) · [Telegram Bot API](https://core.telegram.org/bots/api)。

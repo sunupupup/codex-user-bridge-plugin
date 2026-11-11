@@ -25,13 +25,13 @@ uv run --frozen --env-file .env python scripts/serve.py --channel weixin --port 
 
 ## 3. 从 Codex 测试
 
-更新插件后在新聊天中说：“通过 user bridge 问我是否继续这次测试，稍后查询回答。”应返回 `channel: weixin`。在手机复制通知里的命令，补上回答：
+先执行 `uv run --frozen bridge config set channel weixin`。在新聊天中说：“通过 user bridge 问我是否继续这次测试，稍后查询回答。”应返回 `channel: weixin`。推荐在微信引用原通知，直接输入答案；也可使用通知里的完整编号：
 
 ```text
 /reply q_通知里的32位问题编号 继续
 ```
 
-请使用通知中的完整真实编号。让 Codex 查询同一问题，应得到 `answered`、`reply.source: weixin`、`is_simulated: false`。支持 /reply 编号回复；支持引用原通知直接输入答案，无需复制编号；通过引用内容中的问题编号或已保存的服务端消息 ID 关联，已完成真实桌面微信测试。语音或图片暂不支持。
+请使用通知中的完整真实编号。让 Codex 查询同一问题，应得到 `answered`、`reply.source: weixin`、`is_simulated: false`。引用回复已完成真实桌面微信测试。语音或图片暂不支持。
 
 ## 状态与限制
 
@@ -48,16 +48,7 @@ uv run --frozen --env-file .env python scripts/serve.py --channel weixin --port 
 
 ## Hook 自动回传
 
-```sh
-uv run --frozen bridge config set channel weixin
-uv run --frozen bridge config set mode hook
-node scripts/desktop_answer_worker.mjs
-```
-
-worker 必须从 Codex 环境启动；已有旧 worker 时先停止它，再启动新版，不能并行消费。
-使用已安装的 PreToolUse Hook 发起带 native_bridge_probe 标记的异步问题。
-手机引用原通知直接回复，或按通知里的 `/reply 问题编号 回答` 回复，后台校验 weixin 来源后自动转交原聊天。
-原生卡片状态仍不自动关闭。缺少上下文时只排队，不伪装发送成功。
+选择 weixin 渠道后，按 [后台回传](./desktop-answer-relay.md) 启用 Hook 模式和 worker。收到答案后自动转交原聊天，原生卡片暂不自动关闭。
 
 登录二维码可保存为图片：
 `uv run --frozen python scripts/weixin_setup.py --qr-file .local/weixin-login.png`。

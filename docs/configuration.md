@@ -40,13 +40,10 @@ Hook 和 worker 仍按 [后台任务说明](./desktop-answer-relay.md) 安装与
 |---|---|---|
 | local_chat | 5555 | tool / hook |
 | telegram | 5556 | tool / hook |
-| local_mock | 5555 | tool，仅模拟 |
-| feishu | 5557 | tool |
 | weixin | 5558 | tool / hook |
 
 自定义端口：`uv run --frozen bridge config set base_url http://127.0.0.1:5560`。
 再次切换 channel 会重置端口，请先设渠道、再设自定义地址。
-hook 模式不接受其他渠道；切换其他渠道前先设置 mode tool。
 
 配置命令只保存并校验配置，不启动服务，也不验证远端账号。
 例如 Telegram 服务仍需运行：
@@ -58,12 +55,3 @@ uv run --frozen --env-file .env python scripts/serve.py --channel telegram --por
 同一机器人只运行一个接收服务。旧任务依赖的旧服务需保持运行直到收尾。
 尚未建立配置文件时，Tool 模式兼容原有 BRIDGE_BASE_URL；创建配置后以文件为准。
 旧 `.local/desktop-relay-config.json` 不再读取，请用上述命令显式迁移。
-
-## 验证范围
-
-2026-11-06：Python 全量 50 项、Node worker 6 项通过；CLI show/set 已执行验证。
-测试期间本机使用 hook + telegram，MCP 子进程仍通过隔离配置完成回归。
-
-自动测试覆盖配置校验、非法值不覆盖文件、Hook 模式旁路、重复 Hook、
-Tool 模式约束及旧问题路由。此前本地和 Telegram 自动转交实测见后台任务说明。
-本次配置改造不代表已额外完成一次真实手机收发测试。
