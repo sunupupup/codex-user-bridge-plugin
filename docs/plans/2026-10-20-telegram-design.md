@@ -1,6 +1,6 @@
 # Telegram 文本私聊渠道
 
-状态：已实现并通过模拟 API 验证。真实 Bot/手机联调待用户配置。用户已明确启动 Telegram 实现，不接飞书、微信。
+状态：已实现并通过模拟 API 验证。真实 Bot/手机联调待用户配置。用户已明确启动 Telegram 实现，暂不接其他渠道。
 
 - 保持两个 MCP 工具，经本地 HTTP 服务写问题、查回复；发送先持久化为 queued，后台进程调用 Telegram。
 - 默认 local_mock 不变；`--channel telegram` 启用真实渠道，关闭模拟自动回答。
