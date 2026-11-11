@@ -23,8 +23,8 @@ def validate(value):
         raise ValueError('只支持 mode、channel、base_url')
     if value.get('mode') not in ('tool', 'hook') or value.get('channel') not in PORTS:
         raise ValueError('mode 必须是 tool/hook，channel 必须是已支持渠道')
-    if value['mode'] == 'hook' and value['channel'] not in ('local_chat', 'telegram'):
-        raise ValueError('hook 模式仅支持 local_chat/telegram；请先切换渠道')
+    if value['mode'] == 'hook' and value['channel'] not in ('local_chat', 'telegram', 'weixin'):
+        raise ValueError('hook 模式仅支持 local_chat/telegram/weixin；请先切换渠道')
     LocalHttpAdapter(value['base_url'])
     return value
 

@@ -15,10 +15,10 @@ uv run --frozen python scripts/weixin_setup.py
 
 ## 2. 启动微信服务
 
-先停止占用 5555 的旧服务，再运行：
+使用独立的 5558 端口，可保留本地聊天和 Telegram 服务：
 
 ```powershell
-uv run --frozen --env-file .env python scripts/serve.py --channel weixin --db .local/weixin.sqlite3
+uv run --frozen --env-file .env python scripts/serve.py --channel weixin --port 5558 --db .local/weixin.sqlite3
 ```
 
 没有 `.env` 时可去掉 `--env-file .env`；微信默认直接读扫码凭据文件。服务启动后，在手机给该机器人发一条“你好”，建立会话上下文。普通聊天不会自动成为某个问题的答案。
@@ -31,7 +31,7 @@ uv run --frozen --env-file .env python scripts/serve.py --channel weixin --db .l
 /reply q_通知里的32位问题编号 继续
 ```
 
-请使用通知中的完整真实编号。让 Codex 查询同一问题，应得到 `answered`、`reply.source: weixin`、`is_simulated: false`。本版只支持编号关联的文本回复，不支持引用回复、语音或图片。
+请使用通知中的完整真实编号。让 Codex 查询同一问题，应得到 `answered`、`reply.source: weixin`、`is_simulated: false`。支持 /reply 编号回复；支持引用原通知直接输入答案，无需复制编号；通过引用内容中的问题编号或已保存的服务端消息 ID 关联，已完成真实桌面微信测试。语音或图片暂不支持。
 
 ## 状态与限制
 
@@ -42,6 +42,27 @@ uv run --frozen --env-file .env python scripts/serve.py --channel weixin --db .l
 - 接收采用最长约 35 秒的平台长轮询，通知可能需要等待本轮返回；退出也可能等待在途请求结束。
 - 同一账号只运行一个接收进程，不要与另一个 OpenClaw 实例争抢消息。换账号请使用新的数据库。
 
-协议依据为腾讯维护的 [openclaw-weixin 协议与源码](https://github.com/Tencent/openclaw-weixin/blob/main/docs/protocol_zh_CN.md)。该文档也说明客户端字段不等于完整服务端契约。会话上下文有效期没有在本插件中写死；[上游用户反馈](https://github.com/Tencent/openclaw-weixin/issues/309)显示长期无人发言后的通知可能被拒绝，具体窗口仍需你的账号实测。版本号和 bot_agent 使用本插件自身版本，没有冒充 OpenClaw。
+协议依据为腾讯维护的 [openclaw-weixin 协议与源码](https://github.com/Tencent/openclaw-weixin/blob/main/docs/protocol_zh_CN.md)。该文档也说明客户端字段不等于完整服务端契约。会话上下文有效期没有在本插件中写死；[上游用户反馈](https://github.com/Tencent/openclaw-weixin/issues/309)显示长期无人发言后的通知可能被拒绝，具体窗口仍需你的账号实测。协议兼容版本与本项目版本分开：按上游文档声明 3.0.1 协议，bot_agent 保留 CodexUserBridge 身份。
 
-本地已覆盖模拟平台 HTTP、消息去重、身份绑定、会话失效、登录文件与真实 MCP 子进程。尚未使用真实个人微信账号联调，不能据此保证无人值守的长期通知可靠性。
+本地已覆盖模拟平台 HTTP、消息去重、身份绑定、会话失效、登录文件与真实 MCP 子进程。2026-11-11 已使用真实微信账号验证通知、/reply 回复、引用回复及 Codex 自动接收；长期无人值守可靠性仍未验证。
+
+## Hook 自动回传
+
+```sh
+uv run --frozen bridge config set channel weixin
+uv run --frozen bridge config set mode hook
+node scripts/desktop_answer_worker.mjs
+```
+
+worker 必须从 Codex 环境启动；已有旧 worker 时先停止它，再启动新版，不能并行消费。
+使用已安装的 PreToolUse Hook 发起带 native_bridge_probe 标记的异步问题。
+手机引用原通知直接回复，或按通知里的 `/reply 问题编号 回答` 回复，后台校验 weixin 来源后自动转交原聊天。
+原生卡片状态仍不自动关闭。缺少上下文时只排队，不伪装发送成功。
+
+登录二维码可保存为图片：
+`uv run --frozen python scripts/weixin_setup.py --qr-file .local/weixin-login.png`。
+图片只保存在本机的忽略目录；过期后重新生成。
+
+2026-11-11：真实微信闭环通过；桌面微信引用通知发送测试文本后，数据库保存答案、worker 状态为 submitted，原 Codex 聊天实际收到转交消息。真实引用字段为 ref_msg.message_item.msg_id，已加入回归测试。
+
+引用回复只用引用字段定位原题，答案取新输入正文；普通“可以”不自动归到最近问题。已回答的问题保持首条有效答案，不会因引用旧题再次触发执行。

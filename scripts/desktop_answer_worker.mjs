@@ -65,7 +65,7 @@ export async function advance(job, {save, request = (endpoint, body) => http(end
   if (job.state === 'queued') {
     const health = await request('/health');
     const channel = job.channel || 'local_chat';
-    if (!['local_chat', 'telegram'].includes(channel) || health.channel !== channel) throw new Error('服务渠道与问题绑定渠道不一致');
+    if (!['local_chat', 'telegram', 'weixin'].includes(channel) || health.channel !== channel) throw new Error('服务渠道与问题绑定渠道不一致');
     const result = await request('/chat', {
       task_id:job.thread_id, request_id:`desktop-relay:${job.call_id}:${job.index}`,
       message:`[后台答案转交测试] ${job.title}`, options:job.options
@@ -75,7 +75,7 @@ export async function advance(job, {save, request = (endpoint, body) => http(end
   const result = await request(`/chat/${encodeURIComponent(job.question_id)}?task_id=${encodeURIComponent(job.thread_id)}`);
   if (result.status !== 'answered' || !result.reply) return;
   if (result.reply.is_simulated !== false || typeof result.reply.text !== 'string' ||
-      (job.channel === 'telegram' && result.reply.source !== 'telegram')) {
+      (['telegram', 'weixin'].includes(job.channel) && result.reply.source !== job.channel)) {
     job.state = 'failed'; job.error = '拒绝模拟答案或无效回复'; await save(job); return;
   }
   job.state = 'sending'; await save(job);

@@ -26,10 +26,15 @@ class ConfigTests(unittest.IsolatedAsyncioTestCase):
         set_config('channel', 'telegram')
         set_config('mode', 'hook')
         before = self.path.read_bytes()
-        for key, value in [('mode','bad'), ('channel','weixin'), ('base_url','https://example.com')]:
+        for key, value in [('mode','bad'), ('channel','feishu'), ('base_url','https://example.com')]:
             with self.assertRaises(ValueError): set_config(key,value)
             self.assertEqual(before, self.path.read_bytes())
         self.assertEqual(read_config()['base_url'], 'http://127.0.0.1:5556')
+
+    def test_weixin_hook_route(self):
+        set_config('channel', 'weixin')
+        set_config('mode', 'hook')
+        self.assertEqual(read_config()['base_url'], 'http://127.0.0.1:5558')
 
     async def test_hook_rejects_tools_but_drains_known_reply(self):
         set_config('mode','hook')

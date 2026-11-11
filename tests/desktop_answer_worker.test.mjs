@@ -2,6 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {advance} from '../scripts/desktop_answer_worker.mjs';
 
+test('微信等待上下文时保持 pending，真实答案转交一次，拒绝串渠道', async()=>{
+  let answered = false;
+  const f = fixture({request:async endpoint => endpoint === '/health' ? {channel:'weixin'} :
+    endpoint === '/chat' ? {question_id:'wx1'} : answered ?
+      {status:'answered',reply:{text:'微信回复',source:'weixin',is_simulated:false}} :
+      {status:'pending',delivery_status:'queued'}});
+  f.job.channel='weixin';
+  await advance(f.job,f.deps); assert.equal(f.sent.length,0);
+  answered=true; await advance(f.job,f.deps); await advance(f.job,f.deps);
+  assert.equal(f.job.state,'submitted'); assert.equal(f.sent.length,1);
+  assert.match(f.sent[0],/通过 weixin/);
+  const g=fixture({request:async()=>({status:'answered',reply:{text:'其他渠道',source:'telegram',is_simulated:false}})});
+  g.job.channel='weixin'; g.job.state='waiting';
+  await advance(g.job,g.deps); assert.equal(g.job.state,'failed'); assert.equal(g.sent.length,0);
+});
+
 test('Telegram 绑定渠道和答案来源必须匹配', async()=>{
   const f = fixture({request:async endpoint => endpoint === '/health' ? {channel:'telegram'} :
     endpoint === '/chat' ? {question_id:'tg1'} : {status:'answered',reply:{text:'手机回复',source:'telegram',is_simulated:false}}});

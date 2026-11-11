@@ -23,9 +23,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--credentials', type=Path,
         default=credentials_path() if os.environ.get('WEIXIN_CREDENTIALS') else Path(__file__).resolve().parents[1] / '.local/weixin-account.json')
+    parser.add_argument('--qr-file', type=Path, help='将登录二维码保存成本地 PNG，便于从聊天窗口扫描')
     args = parser.parse_args()
     try:
-        login(args.credentials, show_qr, input)
+        def display(content):
+            if args.qr_file:
+                import qrcode
+                # 只写本地文件，不把登录链接上传第三方二维码服务。
+                args.qr_file.parent.mkdir(parents=True, exist_ok=True)
+                qrcode.make(content).save(args.qr_file)
+                print('请用手机微信扫描二维码：' + str(args.qr_file.resolve()), flush=True)
+            else:
+                show_qr(content)
+        login(args.credentials, display, input)
     except (ValueError, ChannelError) as exc:
         parser.exit(2, str(exc) + '\n')
     except KeyboardInterrupt:

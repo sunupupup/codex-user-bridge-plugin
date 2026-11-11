@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import secrets
 from urllib.parse import urlsplit
@@ -10,7 +11,30 @@ from urllib.parse import urlsplit
 from .channel_base import ChannelError, ExternalChannel, json_request, parse_reply, question_text
 
 DEFAULT_BASE = 'https://ilinkai.weixin.qq.com'
-VERSION = '0.5.0'
+# 协议版本与本项目版本分开；微信后端按兼容协议版本校验客户端。
+VERSION = '3.0.1'
+BRIDGE_VERSION = '0.6.0'
+
+
+def quoted_target(items):
+    """只认引用消息的明确编号或服务端 ID，不猜最近一道问题。"""
+    qids, parents = set(), set()
+    for item in items:
+        ref = item.get('ref_msg') if isinstance(item, dict) else None
+        if not isinstance(ref, dict):
+            continue
+        quoted = ref.get('message_item')
+        text_item = quoted.get('text_item') if isinstance(quoted, dict) else None
+        for value in [ref.get('title'), text_item.get('text') if isinstance(text_item, dict) else None]:
+            if isinstance(value, str):
+                qids.update(re.findall(r'Codex 问题\s+(q_[0-9a-f]{32})(?![0-9a-f])', value))
+        # 真机引用可能仅包含 message_item.msg_id，不带标题、正文或 svr_id。
+        for parent in (ref.get('svr_id'), quoted.get('msg_id') if isinstance(quoted, dict) else None):
+            if isinstance(parent, (str, int)) and not isinstance(parent, bool) and str(parent):
+                parents.add(str(parent))
+    if len(qids) > 1 or len(parents) > 1:
+        return None, None
+    return next(iter(qids), None), next(iter(parents), None)
 
 
 def api_base(value):
@@ -95,13 +119,20 @@ class WeixinApi:
 
     def request(self, endpoint, body, timeout=12):
         value = json_request(self.base + '/ilink/bot/' + endpoint,
-            {**body, 'base_info': {'channel_version': VERSION, 'bot_agent': 'CodexUserBridge/' + VERSION}},
+            {**body, 'base_info': {'channel_version': VERSION, 'bot_agent': 'CodexUserBridge/' + BRIDGE_VERSION}},
             post_headers(self.account['bot_token']), timeout=timeout)
         codes = [value.get('ret', 0), value.get('errcode', 0)]
         if -14 in codes:
             raise WeixinError(-14)
         if any(code != 0 for code in codes):
             raise WeixinError(next(code for code in codes if code != 0))
+        # getupdates 成功响应可省略 ret；仅轮询允许这种协议形态，发送仍须明确确认。
+        if endpoint == 'getupdates' and 'ret' not in value:
+            if isinstance(value.get('get_updates_buf'), str) and isinstance(value.get('msgs', []), list):
+                return value
+        # 新版发送成功可仅返回 message_id；保留服务端 ID 以关联引用回复。
+        if endpoint == 'sendmessage' and 'ret' not in value and isinstance(value.get('message_id'), (str, int)) and not isinstance(value['message_id'], bool) and str(value['message_id']):
+            return value
         if value.get('ret') != 0:
             raise ChannelError('微信未明确确认请求结果，不自动重发。', uncertain=True)
         return value
@@ -110,13 +141,13 @@ class WeixinApi:
         return self.request('getupdates', {'get_updates_buf': cursor}, timeout=40)
 
     def send(self, question, context):
-        self.request('sendmessage', {'msg': {
+        result = self.request('sendmessage', {'msg': {
             'from_user_id': '', 'to_user_id': self.account['ilink_user_id'],
             'client_id': question['question_id'], 'message_type': 2, 'message_state': 2,
             'context_token': context,
             'item_list': [{'type': 1, 'text_item': {'text': question_text(question)}}],
         }})
-        return question['question_id']
+        return str(result.get('message_id') or question['question_id'])
 
 
 class WeixinChannel(ExternalChannel):
@@ -182,7 +213,29 @@ class WeixinChannel(ExternalChannel):
                      if isinstance(item, dict) and item.get('type') == 1 and isinstance(item.get('text_item'), dict)]
             text = '\n'.join(value for value in texts if isinstance(value, str))
             qid, answer = parse_reply(text)
-            events.append((str(mid), qid, None, answer, self.account['ilink_user_id'], event_states))
+            parent = None
+            if not text.strip().startswith('/reply'):
+                qid, parent = quoted_target(items)
+                # 引用内容只用于定位；答案只取用户新输入正文，避免把旧问题当作同意。
+                answer = text.strip() if (qid or parent) and 0 < len(text.strip()) <= 4000 else None
+            if os.environ.get('WEIXIN_QUOTE_DIAGNOSTICS') == '1':
+                # 临时诊断只留字段形态和关联编号，不记录正文、账号、上下文或媒体密钥。
+                def shape(value, key=''):
+                    if isinstance(value, dict):
+                        return {k: shape(v, k) for k, v in value.items()
+                                if k not in ('context_token', 'from_user_id', 'to_user_id')}
+                    if isinstance(value, list):
+                        return [shape(v) for v in value[:10]]
+                    if key in ('svr_id', 'message_id', 'msg_id', 'type'):
+                        return value
+                    if isinstance(value, str):
+                        return {'type': 'str', 'length': len(value),
+                                'question_ids': re.findall(r'q_[0-9a-f]{32}', value)}
+                    return type(value).__name__
+                diagnostic = self.store.path.parent / 'weixin-quote-diagnostics.jsonl'
+                with diagnostic.open('a', encoding='utf-8') as output:
+                    output.write(json.dumps({'shape': shape(message), 'qid': qid, 'parent': parent}, ensure_ascii=False) + '\n')
+            events.append((str(mid), qid, parent, answer, self.account['ilink_user_id'], event_states))
         self.store.external_events(self.channel, events, states)
 
     def poll_once(self):

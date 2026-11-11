@@ -120,6 +120,65 @@ class WeixinTests(unittest.TestCase):
         self.channel.poll_once()
         self.assertEqual(self.calls[-1][1]['get_updates_buf'], 'cursor_next')
 
+    def test_poll_success_without_ret_accepts_context(self):
+        self.poll_result = {'msgs': [self.event()], 'get_updates_buf': 'cursor_without_ret'}
+        self.channel.poll_once()
+        self.assertEqual(self.store.state_get('weixin_context'), 'context_one')
+        self.assertEqual(self.store.state_get('weixin_cursor'), 'cursor_without_ret')
+        # 空响应和非零错误仍不允许被误判成功。
+        self.poll_result = {}
+        with self.assertRaises(ChannelError):
+            self.channel.poll_once()
+        self.poll_result = {'errcode': -14, 'get_updates_buf': 'bad'}
+        with self.assertRaises(WeixinError):
+            self.channel.poll_once()
+
+    def test_quote_text_and_server_id_match_only_original_question(self):
+        first, second = self.question(), self.store.send('other', 'other', '另一个问题', [], channel='weixin')
+        message = self.event('引用回答')
+        message['item_list'][0]['ref_msg'] = {'message_item': {'type': 1, 'text_item': {'text': 'Codex 问题 ' + first['question_id']}}}
+        self.accept(message)
+        self.assertEqual(self.store.get('task', first['question_id'])['reply']['text'], '引用回答')
+        self.assertIsNone(self.store.get('other', second['question_id'])['reply'])
+        self.store.external_delivery('weixin', second['question_id'], 'sent', 'server-123')
+        message = self.event('通过服务端编号回答', mid=2)
+        message['item_list'][0]['ref_msg'] = {'svr_id': 'server-123'}
+        self.accept(message)
+        self.assertEqual(self.store.get('other', second['question_id'])['reply']['text'], '通过服务端编号回答')
+
+    def test_quote_conflict_and_plain_text_do_not_answer(self):
+        q = self.question()
+        message = self.event('可以')
+        self.accept(message)
+        self.assertIsNone(self.store.get('task', q['question_id'])['reply'])
+        message = self.event('可以', mid=2)
+        message['item_list'][0]['ref_msg'] = {'title': 'Codex 问题 ' + q['question_id'],
+            'message_item': {'text_item': {'text': 'Codex 问题 q_' + 'a' * 32}}}
+        self.accept(message)
+        self.assertIsNone(self.store.get('task', q['question_id'])['reply'])
+
+    def test_send_message_id_without_ret(self):
+        self.send_result = {'message_id': 'server-456'}
+        q = self.question()
+        self.accept(self.event())
+        self.channel.deliver_one()
+        self.assertEqual(self.store.get('task', q['question_id'])['delivery_status'], 'sent')
+
+    def test_real_quote_shape_nested_msg_id_without_content(self):
+        q = self.question()
+        parent = '7526274873277560328'
+        self.store.external_delivery('weixin', q['question_id'], 'sent', parent)
+        message = self.event('引用测试')
+        # 2026-11-11 真机脱敏结构：type=0，只有嵌套 msg_id，无引用正文。
+        message['item_list'][0]['ref_msg'] = {'message_item': {
+            'type': 0, 'msg_id': parent, 'button_item_list': [], 'at_bot_username_list': []}}
+        self.accept(message)
+        self.assertEqual(self.store.get('task', q['question_id'])['reply']['text'], '引用测试')
+        message['message_id'] = 2
+        message['item_list'][0]['text_item']['text'] = '迟到的第二答'
+        self.accept(message)
+        self.assertEqual(self.store.get('task', q['question_id'])['reply']['text'], '引用测试')
+
     def test_duplicate_cannot_overwrite_reply_or_newer_context(self):
         q = self.question()
         old = self.event(f"/reply {q['question_id']} 第一答")

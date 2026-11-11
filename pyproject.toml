@@ -13,7 +13,7 @@ authors = [{name = "sunupupup"}]
 dependencies = [
     "lark-oapi==1.7.5",
     "mcp==1.30.0",
-    "qrcode==8.2",
+    "qrcode[pil]==8.2",
 ]
 
 [project.scripts]

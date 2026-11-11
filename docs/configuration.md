@@ -42,7 +42,7 @@ Hook 和 worker 仍按 [后台任务说明](./desktop-answer-relay.md) 安装与
 | telegram | 5556 | tool / hook |
 | local_mock | 5555 | tool，仅模拟 |
 | feishu | 5557 | tool |
-| weixin | 5558 | tool |
+| weixin | 5558 | tool / hook |
 
 自定义端口：`uv run --frozen bridge config set base_url http://127.0.0.1:5560`。
 再次切换 channel 会重置端口，请先设渠道、再设自定义地址。
